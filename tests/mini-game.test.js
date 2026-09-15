@@ -17,19 +17,18 @@ function result(overrides) {
   return MiniGame.calculateResult(state);
 }
 
-assert.equal(result({}).score, 200, 'a perfect run should score 200');
-assert.equal(result({ elapsedMs: 90001 }).score, 199, 'the first started late second should cost one point');
-assert.equal(result({ coinsCollected: 14 }).score, 195, 'one missed coin should cost five points');
-assert.equal(result({ coinsCollected: 14, goombasKilled: 1 }).score, 197, 'one Goomba should add two points');
-assert.equal(result({ goombasKilled: 14 }).score, 200, 'Goomba bonuses should never exceed the 200-point cap');
-assert.equal(result({ livesRemaining: 2 }).score, 175, 'one lost life should cost 25 points');
+assert.equal(result({ goombasKilled: 14 }).score, 200, 'a perfect run should score 200');
+assert.equal(result({ elapsedMs: 90001, goombasKilled: 14 }).score, 199, 'the first started late second should cost one point');
+assert.equal(result({ coinsCollected: 14, goombasKilled: 14 }).score, 195, 'one missed coin should cost five points');
+assert.equal(result({ goombasKilled: 13 }).score, 198, 'one missed Goomba should cost two points');
+assert.equal(result({ livesRemaining: 2, goombasKilled: 14 }).score, 175, 'one lost life should cost 25 points');
 assert.equal(
-  result({ elapsedMs: 105000, coinsCollected: 12, livesRemaining: 2 }).score,
+  result({ elapsedMs: 105000, coinsCollected: 12, goombasKilled: 14, livesRemaining: 2 }).score,
   145,
   'combined penalties should be deterministic'
 );
 assert.equal(
-  result({ elapsedMs: 149999, coinsCollected: 0, livesRemaining: 1 }).score,
+  result({ elapsedMs: 149999, coinsCollected: 0, goombasKilled: 14, livesRemaining: 1 }).score,
   15,
   'a successful run immediately before the limit should remain positive'
 );

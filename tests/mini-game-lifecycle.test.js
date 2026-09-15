@@ -183,7 +183,8 @@ assert.equal(dispatchedEvents.length, 1, 'a terminal result should dispatch exac
 assert.equal(dispatchedEvents[0].type, 'mario-maker:result');
 assert.equal(dispatchedEvents[0].detail.outcome, 'won');
 assert.equal(dispatchedEvents[0].detail.goombasKilled, 1, 'a Goomba should only be scored once');
-assert.equal(dispatchedEvents[0].detail.bonuses.goombas, 2, 'a Goomba kill should award two points');
+assert.equal(dispatchedEvents[0].detail.missedGoombas, 13, 'unkilled Goombas should be reported');
+assert.equal(dispatchedEvents[0].detail.penalties.goombas, 26, 'each missed Goomba should deduct two points');
 
 game.clearInstances();
 clock = 2000;

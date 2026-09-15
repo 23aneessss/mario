@@ -29,6 +29,7 @@ var MiniGame = (function() {
       coinsCollected: coinsCollected,
       missedCoins: rules.totalCoins - coinsCollected,
       goombasKilled: goombasKilled,
+      missedGoombas: rules.totalGoombas - goombasKilled,
       livesRemaining: livesRemaining,
       livesLost: rules.startingLives - livesRemaining,
       lateSeconds: Math.ceil(Math.max(0, elapsedMs - rules.perfectTimeMs) / 1000)
@@ -39,15 +40,13 @@ var MiniGame = (function() {
     var metrics = getMetrics(state);
     var penalties = {
       coins: metrics.missedCoins * rules.missedCoinPenalty,
+      goombas: metrics.missedGoombas * rules.goombaPoints,
       lives: metrics.livesLost * rules.lostLifePenalty,
       time: metrics.lateSeconds * rules.lateSecondPenalty
     };
-    var bonuses = {
-      goombas: metrics.goombasKilled * rules.goombaPoints
-    };
     var won = state.outcome == 'won';
     var score = won
-      ? clamp(rules.maxScore - penalties.coins - penalties.lives - penalties.time + bonuses.goombas, 1, rules.maxScore)
+      ? clamp(rules.maxScore - penalties.coins - penalties.goombas - penalties.lives - penalties.time, 1, rules.maxScore)
       : 0;
 
     return {
@@ -59,14 +58,14 @@ var MiniGame = (function() {
       coinsCollected: metrics.coinsCollected,
       totalCoins: rules.totalCoins,
       goombasKilled: metrics.goombasKilled,
+      missedGoombas: metrics.missedGoombas,
       totalGoombas: rules.totalGoombas,
       livesRemaining: metrics.livesRemaining,
       livesStarted: rules.startingLives,
       missedCoins: metrics.missedCoins,
       livesLost: metrics.livesLost,
       lateSeconds: metrics.lateSeconds,
-      penalties: penalties,
-      bonuses: bonuses
+      penalties: penalties
     };
   }
 

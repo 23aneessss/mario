@@ -462,7 +462,7 @@ function MarioGame() {
 
     goombas = goombas.filter(function(goomba) {
       var finishedDeathAnimation = goomba.state == 'dead' && goomba.frame >= 4;
-      var outsideUsefulArea = goomba.y > height + tileSize || goomba.x < leftCleanupEdge;
+      var outsideUsefulArea = goomba.y > height + tileSize;
       return !finishedDeathAnimation && !outsideUsefulArea;
     });
   };
@@ -484,6 +484,15 @@ function MarioGame() {
   this.keepGoombaAwayFromPits = function(goomba) {
     if (goomba.state == 'dead' || goomba.state == 'deadFromBullet' || !goomba.velX) {
       return;
+    }
+
+    var currentColumn = Math.floor((goomba.x + goomba.width / 2) / tileSize);
+    var groundY = height - tileSize - goomba.height;
+
+    if (map[14][currentColumn] != 0 && goomba.y >= groundY) {
+      goomba.y = groundY;
+      goomba.velY = 0;
+      goomba.grounded = true;
     }
 
     var movingRight = goomba.velX > 0;

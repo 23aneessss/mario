@@ -19,10 +19,10 @@ The built-in challenge starts with three lives and has a 150-second limit. Reach
 Successful runs use this formula:
 
 ```text
-max(1, 200 - missedCoins*5 - livesLost*25 - lateSeconds + goombasKilled*2)
+max(1, 200 - missedCoins*5 - missedGoombas*2 - livesLost*25 - lateSeconds)
 ```
 
-Each defeated Goomba adds two points, but the final score can never exceed 200. Running out of lives, reaching the time limit, or abandoning the run scores zero.
+Each Goomba left alive removes two points, so a 200-point run requires defeating all 14. Running out of lives, reaching the time limit, or abandoning the run scores zero.
 
 An automatic checkpoint activates at the beginning of the final section. Death after that point respawns Mario at the checkpoint, preserves the coins collected before it, and resets coins collected after it. Time and lives continue across the respawn.
 

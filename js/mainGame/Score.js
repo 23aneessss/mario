@@ -119,7 +119,10 @@ function Score() {
 
     view.addClass(timeWrapper, timeClass);
     view.setHTML(timeWrapper, 'Time: ' + remainingSeconds);
-    view.setHTML(coinScoreWrapper, 'Coins: ' + that.coinScore + '/' + miniGameRules.totalCoins);
+    view.setHTML(
+      coinScoreWrapper,
+      'Coins: ' + that.coinScore + '/' + miniGameRules.totalCoins + ' | G: ' + that.goombaScore + '/' + miniGameRules.totalGoombas
+    );
     view.setHTML(lifeCountWrapper, 'x ' + that.lifeCount);
     view.setHTML(totalScoreWrapper, 'Points: ' + that.totalScore);
   };
@@ -177,7 +180,7 @@ function Score() {
       details =
         '<dl class="result-breakdown">' +
           '<div><dt>Missed coins (' + result.missedCoins + ')</dt><dd>-' + result.penalties.coins + '</dd></div>' +
-          '<div><dt>Goombas defeated (' + result.goombasKilled + ')</dt><dd>+' + result.bonuses.goombas + '</dd></div>' +
+          '<div><dt>Missed Goombas (' + result.missedGoombas + ')</dt><dd>-' + result.penalties.goombas + '</dd></div>' +
           '<div><dt>Lives lost (' + result.livesLost + ')</dt><dd>-' + result.penalties.lives + '</dd></div>' +
           '<div><dt>Late seconds (' + result.lateSeconds + ')</dt><dd>-' + result.penalties.time + '</dd></div>' +
         '</dl>';

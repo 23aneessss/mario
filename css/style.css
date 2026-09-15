@@ -194,7 +194,7 @@ body {
 }
 
 .mini-game-hud .coin-score {
-  min-width: 175px;
+  min-width: 220px;
 }
 
 .mini-game-hud .time-count {
@@ -467,7 +467,7 @@ body {
   }
 
   .mini-game-hud .coin-score {
-    min-width: 88px;
+    min-width: 132px;
     padding-left: 30px;
     background-size: 24px auto;
   }
