@@ -1,4 +1,4 @@
-// Main Class through which both the game and level editor are instantiated
+// Main application entry point for the Mario mini-game
 
 var MarioMaker = (function() {
   var instance;
@@ -12,20 +12,15 @@ var MarioMaker = (function() {
 
     var startGameButton;
 
-    var editorStarted = 0;
     var backToMenuBtn;
     var soundToggleButton;
 
     var marioGame;
-    var editor;
-    var createdLevels;
 
     var that = this;
 
     this.init = function() {
       marioGame = new MarioGame();
-      editor = new Editor();
-      createdLevels = new CreatedLevels();
 
       mainWrapper = view.getMainWrapper();
       startScreen = view.create('div');
@@ -81,32 +76,6 @@ var MarioMaker = (function() {
       marioGame.init(levelMap, 1, options);
 
       that.hideMainMenu();
-      editor.removeEditorScreen();
-      createdLevels.removeCreatedLevelsScreen();
-    };
-
-    this.startEditor = function() {
-      view.style(backToMenuBtn, { display: 'block' });
-
-      if (editorStarted == 0) {
-        editor.init();
-        editorStarted = 1;
-      } else {
-        editor.showEditorScreen();
-      }
-
-      that.hideMainMenu();
-      marioGame.removeGameScreen();
-      createdLevels.removeCreatedLevelsScreen();
-    };
-
-    this.startCreatedLevels = function() {
-      view.style(backToMenuBtn, { display: 'block' });
-
-      createdLevels.init();
-      that.hideMainMenu();
-      marioGame.removeGameScreen();
-      editor.removeEditorScreen();
     };
 
     this.backToMenu = function() {
@@ -115,8 +84,6 @@ var MarioMaker = (function() {
       marioGame.clearTimeOut();
       marioGame.removeGameScreen();
 
-      editor.removeEditorScreen();
-      createdLevels.removeCreatedLevelsScreen();
       that.showMainMenu();
 
       view.style(backToMenuBtn, { display: 'none' });

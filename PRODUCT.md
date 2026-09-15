@@ -10,7 +10,7 @@ General players taking part in a short Mario-style mini-game on desktop or the p
 
 ## Product Purpose
 
-Provide one fair, replayable platforming challenge that can be clearly won or lost and awards a transparent score from 0 to 200. A perfect run reaches the flag quickly, collects every coin, and loses no lives. The built-in mini-game is the scored experience; editor-created levels remain compatible with their legacy behavior.
+Provide one fair, replayable platforming challenge that can be clearly won or lost and awards a transparent score from 0 to 200. A perfect run reaches the flag quickly, collects every coin, and loses no lives.
 
 ## Brand Personality
 
