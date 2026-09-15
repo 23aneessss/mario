@@ -17,9 +17,10 @@ function PowerUp() {
 
   var that = this;
 
-  this.mushroom = function(x, y) {
+  this.mushroom = function(x, y, direction) {
     that.x = x;
     that.y = y - that.height;
+    that.velX = Math.abs(that.velX) * (direction || 1);
     that.type = 30;
     that.sX = 0;
   };

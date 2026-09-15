@@ -6,6 +6,7 @@ var GameUI = (function() {
   function GameUI() {
     var canvas = document.getElementsByClassName('game-screen')[0];
     var ctx = canvas.getContext('2d');
+    var mobileControls = document.getElementsByClassName('mobile-controls')[0];
 
     var that = this;
 
@@ -31,10 +32,24 @@ var GameUI = (function() {
 
     this.show = function() {
       canvas.style.display = 'block';
+      that.showControls();
     };
 
     this.hide = function() {
       canvas.style.display = 'none';
+      that.hideControls();
+    };
+
+    this.showControls = function() {
+      if (mobileControls) {
+        mobileControls.classList.add('is-active');
+      }
+    };
+
+    this.hideControls = function() {
+      if (mobileControls) {
+        mobileControls.classList.remove('is-active');
+      }
     };
 
     this.clear = function(x, y, width, height) {

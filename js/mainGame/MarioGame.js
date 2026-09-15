@@ -29,97 +29,228 @@ function MarioGame() {
   var currentLevel;
 
   var animationID;
+  var animationGeneration = 0;
   var timeOutId;
+
+  var gameOptions;
+  var miniGameRules;
+  var isMiniGame = false;
+  var compactView = false;
+  var cameraTop = 0;
+  var canvasHeight = 480;
+  var runState = 'idle';
+  var inputsBound = false;
+  var resultEmitted = false;
+  var runStartedAt = 0;
+  var pausedAt = 0;
+  var pausedDuration = 0;
+  var frozenElapsedMs = 0;
+  var lastHudSignature = '';
+  var checkpoint = null;
+  var collectedCoins = [];
+  var killedEnemies = [];
+  var goombasKilled = 0;
+  var checkpointMessageTicks = 0;
+  var finishAnimation = null;
 
   var tickCounter = 0; //for animating mario
   var maxTick = 25; //max number for ticks to show mario sprite
   var instructionTick = 0; //showing instructions counter
   var that = this;
 
-  this.init = function(levelMaps, level) {
+  this.init = function(levelMaps, level, options) {
+    that.pauseGame();
+    that.clearTimeOut();
+
     height = 480;
-    maxWidth = 0;
-    viewPort = 1280;
+    compactView = !!(
+      window.matchMedia &&
+      window.matchMedia('(max-width: 900px), (pointer: coarse)').matches
+    );
+    viewPort = compactView ? 480 : 960;
+    cameraTop = compactView ? 96 : 0;
+    canvasHeight = height - cameraTop;
     tileSize = 32;
-    translatedDist = 0;
-    goombas = [];
-    powerUps = [];
-    bullets = [];
-
-    gameUI.setWidth(viewPort);
-    gameUI.setHeight(height);
-    gameUI.show();
-
     currentLevel = level;
     originalMaps = levelMaps;
-    map = JSON.parse(levelMaps[currentLevel]);
+    gameOptions = options || null;
+    miniGameRules = gameOptions && gameOptions.rules;
+    isMiniGame = !!miniGameRules;
+    runState = 'running';
+    resultEmitted = false;
+    runStartedAt = that.now();
+    pausedAt = 0;
+    pausedDuration = 0;
+    frozenElapsedMs = 0;
+    lastHudSignature = '';
+    checkpoint = null;
+    collectedCoins = [];
+    killedEnemies = [];
+    goombasKilled = 0;
+    checkpointMessageTicks = 0;
+    finishAnimation = null;
+    instructionTick = 0;
+    tickCounter = 0;
+    keys = [];
 
     if (!score) {
-      //so that when level changes, it uses the same instance
       score = new Score();
       score.init();
     }
+
+    if (isMiniGame) {
+      score.startMiniGame(miniGameRules);
+    } else {
+      score.startLegacy();
+    }
+
     score.displayScore();
     score.updateLevelNum(currentLevel);
 
-    if (!mario) {
-      //so that when level changes, it uses the same instance
-      mario = new Mario();
-      mario.init();
-    } else {
-      mario.x = 10;
-      mario.frame = 0;
+    that.bindKeyPress();
+    that.loadLevel();
+  };
+
+  this.loadLevel = function() {
+    maxWidth = 0;
+    translatedDist = 0;
+    centerPos = viewPort / 2;
+    goombas = [];
+    powerUps = [];
+    bullets = [];
+    bulletFlag = false;
+    finishAnimation = null;
+    map = JSON.parse(originalMaps[currentLevel]);
+
+    if (isMiniGame && checkpoint) {
+      for (var coinIndex = 0; coinIndex < checkpoint.collectedCoins.length; coinIndex++) {
+        var savedCoin = checkpoint.collectedCoins[coinIndex];
+        map[savedCoin.row][savedCoin.column] = 4;
+      }
+
+      for (var enemyIndex = 0; enemyIndex < checkpoint.killedEnemies.length; enemyIndex++) {
+        var savedEnemy = checkpoint.killedEnemies[enemyIndex];
+        map[savedEnemy.row][savedEnemy.column] = 0;
+      }
     }
+
+    gameUI.setWidth(viewPort);
+    gameUI.setHeight(canvasHeight);
+    gameUI.show();
+
+    if (cameraTop) {
+      gameUI.scrollWindow(0, -cameraTop);
+    }
+
+    mario = new Mario();
+    mario.init(height);
     element = new Element();
     gameSound = new GameSound();
     gameSound.init();
 
     that.calculateMaxWidth();
-    that.bindKeyPress();
-    that.startGame();
+
+    if (isMiniGame && checkpoint) {
+      mario.x = checkpoint.spawnX;
+      translatedDist = Math.min(
+        maxWidth - viewPort,
+        Math.max(0, checkpoint.spawnX - viewPort * 0.25)
+      );
+      centerPos = translatedDist + viewPort / 2;
+      gameUI.scrollWindow(-translatedDist, 0);
+    }
+
+    animationGeneration++;
+    that.startGame(animationGeneration);
   };
 
   that.calculateMaxWidth = function() {
-    //calculates the max width of the game according to map size
-    for (var row = 0; row < map.length; row++) {
-      for (var column = 0; column < map[row].length; column++) {
-        if (maxWidth < map[row].length * 32) {
-          maxWidth = map[column].length * 32;
-        }
-      }
-    }
+    maxWidth = map.length ? map[0].length * tileSize : 0;
   };
 
   that.bindKeyPress = function() {
+    if (inputsBound) {
+      return;
+    }
+
+    inputsBound = true;
     var canvas = gameUI.getCanvas(); //for use with touch events
+    var mobileButtons = document.querySelectorAll('.mobile-control');
+
+    function getTouchX(touch) {
+      var bounds = canvas.getBoundingClientRect();
+      return (touch.clientX - bounds.left) * (canvas.width / bounds.width);
+    }
 
     //key binding
     document.body.addEventListener('keydown', function(e) {
-      keys[e.keyCode] = true;
+      if (runState == 'running') {
+        keys[e.keyCode] = true;
+      }
     });
 
     document.body.addEventListener('keyup', function(e) {
       keys[e.keyCode] = false;
     });
 
+    for (var buttonIndex = 0; buttonIndex < mobileButtons.length; buttonIndex++) {
+      (function(button) {
+        var keyCode = parseInt(button.getAttribute('data-key-code'), 10);
+
+        function pressControl(event) {
+          event.preventDefault();
+
+          if (runState != 'running') {
+            return;
+          }
+
+          keys[keyCode] = true;
+          button.classList.add('is-pressed');
+
+          if (button.setPointerCapture && event.pointerId != null) {
+            button.setPointerCapture(event.pointerId);
+          }
+        }
+
+        function releaseControl(event) {
+          event.preventDefault();
+          keys[keyCode] = false;
+          button.classList.remove('is-pressed');
+        }
+
+        button.addEventListener('pointerdown', pressControl);
+        button.addEventListener('pointerup', releaseControl);
+        button.addEventListener('pointercancel', releaseControl);
+        button.addEventListener('lostpointercapture', releaseControl);
+        button.addEventListener('contextmenu', function(event) {
+          event.preventDefault();
+        });
+      })(mobileButtons[buttonIndex]);
+    }
+
     //key binding for touch events
     canvas.addEventListener('touchstart', function(e) {
+      if (runState != 'running') {
+        return;
+      }
+
       var touches = e.changedTouches;
       e.preventDefault();
 
       for (var i = 0; i < touches.length; i++) {
-        if (touches[i].pageX <= 200) {
+        var touchX = getTouchX(touches[i]);
+        if (touchX <= viewPort * 0.16) {
           keys[37] = true; //left arrow
         }
-        if (touches[i].pageX > 200 && touches[i].pageX < 400) {
+        if (touchX > viewPort * 0.16 && touchX < viewPort * 0.32) {
           keys[39] = true; //right arrow
         }
-        if (touches[i].pageX > 640 && touches[i].pageX <= 1080) {
+        if (touchX > viewPort * 0.5 && touchX <= viewPort * 0.84) {
           //in touch events, same area acts as sprint and bullet key
           keys[16] = true; //shift key
           keys[17] = true; //ctrl key
         }
-        if (touches[i].pageX > 1080 && touches[i].pageX < 1280) {
+        if (touchX > viewPort * 0.84 && touchX < viewPort) {
           keys[32] = true; //space
         }
       }
@@ -130,40 +261,46 @@ function MarioGame() {
       e.preventDefault();
 
       for (var i = 0; i < touches.length; i++) {
-        if (touches[i].pageX <= 200) {
+        var touchX = getTouchX(touches[i]);
+        if (touchX <= viewPort * 0.16) {
           keys[37] = false;
         }
-        if (touches[i].pageX > 200 && touches[i].pageX <= 640) {
+        if (touchX > viewPort * 0.16 && touchX <= viewPort * 0.5) {
           keys[39] = false;
         }
-        if (touches[i].pageX > 640 && touches[i].pageX <= 1080) {
+        if (touchX > viewPort * 0.5 && touchX <= viewPort * 0.84) {
           keys[16] = false;
           keys[17] = false;
         }
-        if (touches[i].pageX > 1080 && touches[i].pageX < 1280) {
+        if (touchX > viewPort * 0.84 && touchX < viewPort) {
           keys[32] = false;
         }
       }
     });
 
     canvas.addEventListener('touchmove', function(e) {
+      if (runState != 'running') {
+        return;
+      }
+
       var touches = e.changedTouches;
       e.preventDefault();
 
       for (var i = 0; i < touches.length; i++) {
-        if (touches[i].pageX <= 200) {
+        var touchX = getTouchX(touches[i]);
+        if (touchX <= viewPort * 0.16) {
           keys[37] = true;
           keys[39] = false;
         }
-        if (touches[i].pageX > 200 && touches[i].pageX < 400) {
+        if (touchX > viewPort * 0.16 && touchX < viewPort * 0.32) {
           keys[39] = true;
           keys[37] = false;
         }
-        if (touches[i].pageX > 640 && touches[i].pageX <= 1080) {
+        if (touchX > viewPort * 0.5 && touchX <= viewPort * 0.84) {
           keys[16] = true;
           keys[32] = false;
         }
-        if (touches[i].pageX > 1080 && touches[i].pageX < 1280) {
+        if (touchX > viewPort * 0.84 && touchX < viewPort) {
           keys[32] = true;
           keys[16] = false;
           keys[17] = false;
@@ -172,20 +309,108 @@ function MarioGame() {
     });
   };
 
+  this.now = function() {
+    return window.performance && window.performance.now ? window.performance.now() : Date.now();
+  };
+
+  this.getElapsedMs = function() {
+    if (!isMiniGame) {
+      return 0;
+    }
+
+    if (runState == 'finishing' || runState == 'finish-delay' || runState == 'won') {
+      return frozenElapsedMs;
+    }
+
+    var currentTime = pausedAt || that.now();
+    return Math.max(0, currentTime - runStartedAt - pausedDuration);
+  };
+
+  this.pauseRunClock = function() {
+    if (isMiniGame && !pausedAt) {
+      pausedAt = that.now();
+    }
+  };
+
+  this.resumeRunClock = function() {
+    if (isMiniGame && pausedAt) {
+      pausedDuration += that.now() - pausedAt;
+      pausedAt = 0;
+    }
+  };
+
+  this.updateMiniGameHud = function() {
+    if (!isMiniGame) {
+      return;
+    }
+
+    var elapsedMs = that.getElapsedMs();
+    var remainingSeconds = Math.max(0, Math.ceil((miniGameRules.timeLimitMs - elapsedMs) / 1000));
+    var lateSeconds = Math.ceil(Math.max(0, elapsedMs - miniGameRules.perfectTimeMs) / 1000);
+    var hudSignature = [remainingSeconds, lateSeconds, score.coinScore, goombasKilled, score.lifeCount].join(':');
+
+    if (hudSignature == lastHudSignature) {
+      return;
+    }
+
+    lastHudSignature = hudSignature;
+    var projection = gameOptions.calculateResult({
+      outcome: 'won',
+      reason: 'flag',
+      elapsedMs: elapsedMs,
+      coinsCollected: score.coinScore,
+      goombasKilled: goombasKilled,
+      livesRemaining: score.lifeCount
+    });
+
+    score.updateMiniGame({
+      elapsedMs: elapsedMs,
+      coinsCollected: score.coinScore,
+      goombasKilled: goombasKilled,
+      livesRemaining: score.lifeCount,
+      projectedScore: projection.score
+    });
+  };
+
   //Main Game Loop
-  this.startGame = function() {
-    animationID = window.requestAnimationFrame(that.startGame);
+  this.startGame = function(loopGeneration) {
+    if (loopGeneration != animationGeneration) {
+      return;
+    }
 
-    gameUI.clear(0, 0, maxWidth, height);
+    if (runState != 'running' && runState != 'finishing') {
+      return;
+    }
 
-    if (instructionTick < 1000) {
+    if (isMiniGame && runState == 'running') {
+      if (that.getElapsedMs() >= miniGameRules.timeLimitMs) {
+        that.finalizeMiniGame('lost', 'time-limit');
+        return;
+      }
+
+      that.updateMiniGameHud();
+    }
+
+    animationID = window.requestAnimationFrame(function() {
+      that.startGame(loopGeneration);
+    });
+
+    gameUI.clear(translatedDist, 0, viewPort, height);
+
+    if (instructionTick < (isMiniGame ? 360 : 1000)) {
       that.showInstructions(); //showing control instructions
       instructionTick++;
+    }
+
+    if (checkpointMessageTicks > 0) {
+      gameUI.writeText('Checkpoint reached!', translatedDist + 30, cameraTop + 95);
+      checkpointMessageTicks--;
     }
 
     that.renderMap();
 
     for (var i = 0; i < powerUps.length; i++) {
+      that.keepPowerUpAwayFromPits(powerUps[i]);
       powerUps[i].draw();
       powerUps[i].update();
     }
@@ -196,23 +421,93 @@ function MarioGame() {
     }
 
     for (var i = 0; i < goombas.length; i++) {
+      that.keepGoombaAwayFromPits(goombas[i]);
       goombas[i].draw();
       goombas[i].update();
     }
 
-    that.checkPowerUpMarioCollision();
-    that.checkBulletEnemyCollision();
-    that.checkEnemyMarioCollision();
+    that.cleanupEntities();
+
+    if (runState == 'running') {
+      that.checkPowerUpMarioCollision();
+      that.checkBulletEnemyCollision();
+      that.checkEnemyMarioCollision();
+    }
+
+    if (runState != 'running' && runState != 'finishing') {
+      return;
+    }
 
     mario.draw();
     that.updateMario();
-    that.wallCollision();
-    marioInGround = mario.grounded; //for use with flag sliding
+
+    if (runState == 'running') {
+      that.checkCheckpoint();
+      that.wallCollision();
+      marioInGround = mario.grounded; //for use with legacy flag sliding
+    }
+  };
+
+  this.cleanupEntities = function() {
+    var leftCleanupEdge = translatedDist - viewPort;
+    var rightCleanupEdge = translatedDist + viewPort * 2;
+
+    powerUps = powerUps.filter(function(powerUp) {
+      return powerUp.y <= height + tileSize && powerUp.x >= leftCleanupEdge && powerUp.x <= rightCleanupEdge;
+    });
+
+    bullets = bullets.filter(function(bullet) {
+      return bullet.y <= height + tileSize && bullet.x >= leftCleanupEdge && bullet.x <= rightCleanupEdge;
+    });
+
+    goombas = goombas.filter(function(goomba) {
+      var finishedDeathAnimation = goomba.state == 'dead' && goomba.frame >= 4;
+      var outsideUsefulArea = goomba.y > height + tileSize || goomba.x < leftCleanupEdge;
+      return !finishedDeathAnimation && !outsideUsefulArea;
+    });
+  };
+
+  this.keepPowerUpAwayFromPits = function(powerUp) {
+    if (powerUp.type != 30 || !powerUp.velX) {
+      return;
+    }
+
+    var movingRight = powerUp.velX > 0;
+    var probeX = movingRight ? powerUp.x + powerUp.width + 2 : powerUp.x - 2;
+    var probeColumn = Math.floor(probeX / tileSize);
+
+    if (probeColumn < 0 || probeColumn >= map[14].length || map[14][probeColumn] == 0) {
+      powerUp.velX *= -1;
+    }
+  };
+
+  this.keepGoombaAwayFromPits = function(goomba) {
+    if (goomba.state == 'dead' || goomba.state == 'deadFromBullet' || !goomba.velX) {
+      return;
+    }
+
+    var movingRight = goomba.velX > 0;
+    var probeX = movingRight ? goomba.x + goomba.width + 2 : goomba.x - 2;
+    var probeColumn = Math.floor(probeX / tileSize);
+
+    if (probeColumn < 0 || probeColumn >= map[14].length || map[14][probeColumn] == 0) {
+      goomba.velX *= -1;
+    }
   };
 
   this.showInstructions = function() {
-    gameUI.writeText('Controls: Arrow keys for direction, shift to run, ctrl for bullets', 30, 30);
-    gameUI.writeText('Tip: Jumping while running makes you jump higher', 30, 60);
+    if (isMiniGame) {
+      if (compactView) {
+        gameUI.writeText('Reach the flag. 15 coins. Perfect: 90s.', 30, cameraTop + 30);
+        gameUI.writeText('Use the Game Boy controls below.', 30, cameraTop + 60);
+      } else {
+        gameUI.writeText('Reach the flag. Collect 15 coins. Perfect time: 90 seconds.', 30, 30);
+        gameUI.writeText('Arrows move | Shift runs | Space jumps | Ctrl shoots', 30, 60);
+      }
+    } else {
+      gameUI.writeText('Controls: Arrow keys for direction, shift to run, ctrl for bullets', 30, 30);
+      gameUI.writeText('Tip: Jumping while running makes you jump higher', 30, 60);
+    }
   };
 
   this.renderMap = function() {
@@ -226,8 +521,12 @@ function MarioGame() {
       goombas[i].grounded = false;
     }
 
+    var renderBuffer = 2;
+    var firstVisibleColumn = Math.max(0, Math.floor(translatedDist / tileSize) - renderBuffer);
+    var lastVisibleColumn = Math.min(map[0].length - 1, Math.ceil((translatedDist + viewPort) / tileSize) + renderBuffer);
+
     for (var row = 0; row < map.length; row++) {
-      for (var column = 0; column < map[row].length; column++) {
+      for (var column = firstVisibleColumn; column <= lastVisibleColumn; column++) {
         switch (map[row][column]) {
           case 1: //platform
             element.x = column * tileSize;
@@ -345,6 +644,8 @@ function MarioGame() {
             var enemy = new Enemy();
             enemy.x = column * tileSize;
             enemy.y = row * tileSize;
+            enemy.spawnRow = row;
+            enemy.spawnColumn = column;
             enemy.goomba();
             enemy.draw();
 
@@ -399,6 +700,10 @@ function MarioGame() {
   };
 
   this.checkElementMarioCollision = function(element, row, column) {
+    if (runState == 'finishing') {
+      return;
+    }
+
     var collisionDirection = that.collisionCheck(mario, element);
 
     if (collisionDirection == 'l' || collisionDirection == 'r') {
@@ -407,7 +712,7 @@ function MarioGame() {
 
       if (element.type == 5) {
         //flag pole
-        that.levelFinish(collisionDirection);
+        that.levelFinish(collisionDirection, element.x);
       }
     } else if (collisionDirection == 'b') {
       if (element.type != 5) {
@@ -426,7 +731,7 @@ function MarioGame() {
 
         //gives mushroom if mario is small, otherwise gives flower
         if (mario.type == 'small') {
-          powerUp.mushroom(element.x, element.y);
+          powerUp.mushroom(element.x, element.y, that.getPowerUpDirection(column));
           powerUps.push(powerUp);
         } else {
           powerUp.flower(element.x, element.y);
@@ -454,10 +759,15 @@ function MarioGame() {
       if (element.type == 2) {
         //Coin Box
         score.coinScore++;
-        score.totalScore += 100;
 
-        score.updateCoinScore();
-        score.updateTotalScore();
+        if (isMiniGame) {
+          collectedCoins.push({ row: row, column: column });
+          that.updateMiniGameHud();
+        } else {
+          score.totalScore += 100;
+          score.updateCoinScore();
+          score.updateTotalScore();
+        }
         map[row][column] = 4; //sets to useless box after coin appears
 
         //sound when coin block is hit
@@ -476,6 +786,28 @@ function MarioGame() {
         powerUps[i].grounded = true;
       }
     }
+  };
+
+  this.getPowerUpDirection = function(column) {
+    var safetyDistance = 6;
+    var rightIsSafe = true;
+    var leftIsSafe = true;
+
+    for (var distance = 1; distance <= safetyDistance; distance++) {
+      if (!map[14][column + distance] || map[14][column + distance] == 0) {
+        rightIsSafe = false;
+      }
+
+      if (column - distance < 0 || map[14][column - distance] == 0) {
+        leftIsSafe = false;
+      }
+    }
+
+    if (!rightIsSafe && leftIsSafe) {
+      return -1;
+    }
+
+    return 1;
   };
 
   this.checkElementEnemyCollision = function(element) {
@@ -519,8 +851,10 @@ function MarioGame() {
         }
         powerUps.splice(i, 1);
 
-        score.totalScore += 1000;
-        score.updateTotalScore();
+        if (!isMiniGame) {
+          score.totalScore += 1000;
+          score.updateTotalScore();
+        }
 
         //sound when mushroom appears
         gameSound.play('powerUp');
@@ -539,9 +873,7 @@ function MarioGame() {
           goombas[i].state = 'dead';
 
           mario.velY = -mario.speed;
-
-          score.totalScore += 1000;
-          score.updateTotalScore();
+          that.awardEnemyKill(goombas[i]);
 
           //sound when enemy dies
           gameSound.play('killEnemy');
@@ -572,25 +904,8 @@ function MarioGame() {
               mario.invulnerable = false;
             }, 1000);
           } else if (mario.type == 'small') {
-            //kill mario if collision occurs when he is small
-            that.pauseGame();
-
-            mario.frame = 13;
             collWithMario = undefined;
-
-            score.lifeCount--;
-            score.updateLifeCount();
-
-            //sound when mario dies
-            gameSound.play('marioDie');
-
-            timeOutId = setTimeout(function() {
-              if (score.lifeCount == 0) {
-                that.gameOver();
-              } else {
-                that.resetGame();
-              }
-            }, 3000);
+            that.handleMarioDeath();
             break;
           }
         }
@@ -601,9 +916,10 @@ function MarioGame() {
   this.checkBulletEnemyCollision = function() {
     for (var i = 0; i < goombas.length; i++) {
       for (var j = 0; j < bullets.length; j++) {
-        if (goombas[i] && goombas[i].state != 'dead') {
+        var collWithBullet = null;
+        if (goombas[i] && goombas[i].state != 'dead' && goombas[i].state != 'deadFromBullet') {
           //check for collision only if goombas exist and is not dead
-          var collWithBullet = that.collisionCheck(goombas[i], bullets[j]);
+          collWithBullet = that.collisionCheck(goombas[i], bullets[j]);
         }
 
         if (collWithBullet) {
@@ -611,14 +927,29 @@ function MarioGame() {
           bullets.splice(j, 1);
 
           goombas[i].state = 'deadFromBullet';
-
-          score.totalScore += 1000;
-          score.updateTotalScore();
+          that.awardEnemyKill(goombas[i]);
 
           //sound when enemy dies
           gameSound.play('killEnemy');
         }
       }
+    }
+  };
+
+  this.awardEnemyKill = function(goomba) {
+    if (goomba.scoreAwarded) {
+      return;
+    }
+
+    goomba.scoreAwarded = true;
+
+    if (isMiniGame) {
+      goombasKilled++;
+      killedEnemies.push({ row: goomba.spawnRow, column: goomba.spawnColumn });
+      that.updateMiniGameHud();
+    } else {
+      score.totalScore += 1000;
+      score.updateTotalScore();
     }
   };
 
@@ -632,22 +963,88 @@ function MarioGame() {
 
     //for ground (viewport ground)
     if (mario.y >= height) {
-      that.pauseGame();
-
-      //sound when mario dies
-      gameSound.play('marioDie');
-
-      score.lifeCount--;
-      score.updateLifeCount();
-
-      timeOutId = setTimeout(function() {
-        if (score.lifeCount == 0) {
-          that.gameOver();
-        } else {
-          that.resetGame();
-        }
-      }, 3000);
+      that.handleMarioDeath();
     }
+  };
+
+  this.handleMarioDeath = function() {
+    if (runState != 'running') {
+      return;
+    }
+
+    runState = 'dying';
+    that.pauseRunClock();
+    that.pauseGame();
+    keys = [];
+
+    mario.frame = 13;
+    score.lifeCount--;
+
+    if (isMiniGame) {
+      that.updateMiniGameHud();
+    } else {
+      score.updateLifeCount();
+    }
+
+    gameSound.play('marioDie');
+
+    timeOutId = setTimeout(function() {
+      if (score.lifeCount <= 0) {
+        if (isMiniGame) {
+          that.finalizeMiniGame('lost', 'no-lives');
+        } else {
+          that.gameOver();
+        }
+      } else {
+        if (isMiniGame) {
+          if (checkpoint) {
+            score.coinScore = checkpoint.coinScore;
+            collectedCoins = checkpoint.collectedCoins.slice();
+            goombasKilled = checkpoint.goombasKilled;
+            killedEnemies = checkpoint.killedEnemies.slice();
+            checkpointMessageTicks = 120;
+          } else {
+            score.coinScore = 0;
+            collectedCoins = [];
+            goombasKilled = 0;
+            killedEnemies = [];
+          }
+          that.resumeRunClock();
+        }
+
+        runState = 'running';
+        that.loadLevel();
+        that.updateMiniGameHud();
+      }
+    }, 3000);
+  };
+
+  this.checkCheckpoint = function() {
+    if (
+      isMiniGame &&
+      !checkpoint &&
+      runState == 'running' &&
+      mario.x >= miniGameRules.checkpointColumn * tileSize &&
+      mario.y < height
+    ) {
+      that.activateCheckpoint();
+    }
+  };
+
+  this.activateCheckpoint = function() {
+    if (!isMiniGame || checkpoint) {
+      return;
+    }
+
+    checkpoint = {
+      spawnX: miniGameRules.checkpointColumn * tileSize,
+      coinScore: score.coinScore,
+      collectedCoins: collectedCoins.slice(),
+      goombasKilled: goombasKilled,
+      killedEnemies: killedEnemies.slice()
+    };
+    checkpointMessageTicks = 180;
+    gameSound.play('powerUp');
   };
 
   //controlling mario with key events
@@ -656,6 +1053,11 @@ function MarioGame() {
     var gravity = 0.2;
 
     mario.checkMarioType();
+
+    if (runState == 'finishing') {
+      that.updateFinishAnimation();
+      return;
+    }
 
     if (keys[38] || keys[32]) {
       //up arrow
@@ -724,9 +1126,9 @@ function MarioGame() {
 
     if (keys[16]) {
       //shift key
-      mario.speed = 4.5;
+      mario.speed = 5.4;
     } else {
-      mario.speed = 3;
+      mario.speed = 3.6;
     }
 
     if (keys[17] && mario.type == 'fire') {
@@ -787,7 +1189,14 @@ function MarioGame() {
     }
   };
 
-  this.levelFinish = function(collisionDirection) {
+  this.levelFinish = function(collisionDirection, poleX) {
+    if (isMiniGame) {
+      if (runState == 'running') {
+        that.beginMiniGameFinish(collisionDirection, poleX);
+      }
+      return;
+    }
+
     //game finishes when mario slides the flagPole and collides with the ground
     if (collisionDirection == 'r') {
       mario.x += 10;
@@ -809,43 +1218,204 @@ function MarioGame() {
         mario.x += 10;
         tickCounter = 0;
         mario.frame = 12;
+        runState = isMiniGame ? 'finish-delay' : 'transition';
 
         //sound when stage clears
         gameSound.play('stageClear');
 
         timeOutId = setTimeout(function() {
-          currentLevel++;
-          if (originalMaps[currentLevel]) {
-            that.init(originalMaps, currentLevel);
-            score.updateLevelNum(currentLevel);
+          if (isMiniGame) {
+            that.finalizeMiniGame('won', 'flag');
           } else {
-            that.gameOver();
+            currentLevel++;
+            if (originalMaps[currentLevel]) {
+              runState = 'running';
+              that.loadLevel();
+              score.updateLevelNum(currentLevel);
+            } else {
+              that.gameOver();
+            }
           }
-        }, 5000);
+        }, isMiniGame ? 1200 : 5000);
+      }
+    }
+  };
+
+  this.beginMiniGameFinish = function(collisionDirection, poleX) {
+    frozenElapsedMs = that.getElapsedMs();
+    runState = 'finishing';
+    keys = [];
+    mario.velX = 0;
+    mario.velY = 0;
+    mario.jumping = false;
+
+    var startsLeftOfPole = collisionDirection == 'r';
+    mario.x = startsLeftOfPole ? poleX - mario.width + 4 : poleX + tileSize - 4;
+    mario.y = Math.min(mario.y, height - tileSize - mario.height);
+    mario.frame = startsLeftOfPole ? 11 : 10;
+
+    finishAnimation = {
+      phase: 'slide',
+      tick: 0,
+      poleX: poleX,
+      groundY: height - tileSize - mario.height,
+      slideFrame: mario.frame
+    };
+
+    that.updateMiniGameHud();
+    gameSound.play('stageClear');
+  };
+
+  this.updateFinishAnimation = function() {
+    if (!finishAnimation || runState != 'finishing') {
+      return;
+    }
+
+    if (finishAnimation.phase == 'slide') {
+      mario.frame = finishAnimation.slideFrame;
+      mario.y = Math.min(finishAnimation.groundY, mario.y + 3);
+
+      if (mario.y >= finishAnimation.groundY) {
+        finishAnimation.phase = 'dismount';
+        finishAnimation.tick = 0;
+        finishAnimation.startX = mario.x;
+        finishAnimation.targetX = finishAnimation.poleX + tileSize + 4;
+      }
+      return;
+    }
+
+    if (finishAnimation.phase == 'dismount') {
+      finishAnimation.tick++;
+      var progress = Math.min(1, finishAnimation.tick / 12);
+      var easedProgress = 1 - Math.pow(1 - progress, 3);
+
+      mario.x = finishAnimation.startX + (finishAnimation.targetX - finishAnimation.startX) * easedProgress;
+      mario.y = finishAnimation.groundY - Math.sin(progress * Math.PI) * 18;
+      mario.frame = 10;
+
+      if (progress >= 1) {
+        finishAnimation.phase = 'victory';
+        finishAnimation.tick = 0;
+        mario.y = finishAnimation.groundY;
+        mario.frame = 12;
+      }
+      return;
+    }
+
+    if (finishAnimation.phase == 'victory') {
+      finishAnimation.tick++;
+      mario.y = finishAnimation.groundY;
+      mario.frame = 12;
+
+      if (finishAnimation.tick >= 45) {
+        finishAnimation.phase = 'walk';
+        finishAnimation.tick = 0;
+        finishAnimation.walkTargetX = Math.min(
+          finishAnimation.poleX + tileSize + 60,
+          maxWidth - mario.width
+        );
+      }
+      return;
+    }
+
+    if (finishAnimation.phase == 'walk') {
+      finishAnimation.tick++;
+      mario.x = Math.min(finishAnimation.walkTargetX, mario.x + 2.5);
+      mario.y = finishAnimation.groundY;
+      mario.frame = finishAnimation.tick % 12 < 6 ? 0 : 1;
+
+      if (mario.x >= finishAnimation.walkTargetX || finishAnimation.tick >= 30) {
+        finishAnimation.phase = 'complete';
+        mario.frame = 0;
+        runState = 'finish-delay';
+        that.pauseGame();
+
+        timeOutId = setTimeout(function() {
+          that.finalizeMiniGame('won', 'flag');
+        }, 600);
       }
     }
   };
 
   this.pauseGame = function() {
+    animationGeneration++;
     window.cancelAnimationFrame(animationID);
   };
 
   this.gameOver = function() {
+    runState = 'lost';
+    gameUI.hideControls();
     score.gameOverView();
     gameUI.makeBox(0, 0, maxWidth, height);
     gameUI.writeText('Game Over', centerPos - 80, height - 300);
     gameUI.writeText('Thanks For Playing', centerPos - 122, height / 2);
   };
 
+  this.finalizeMiniGame = function(outcome, reason) {
+    if (!isMiniGame || resultEmitted) {
+      return;
+    }
+
+    var elapsedMs = reason == 'time-limit' ? miniGameRules.timeLimitMs : that.getElapsedMs();
+
+    resultEmitted = true;
+    runState = outcome;
+    frozenElapsedMs = elapsedMs;
+    pausedAt = 0;
+    that.pauseGame();
+    that.clearTimeOut();
+    keys = [];
+    gameUI.hideControls();
+
+    var result = gameOptions.calculateResult({
+      outcome: outcome,
+      reason: reason,
+      elapsedMs: elapsedMs,
+      coinsCollected: score.coinScore,
+      goombasKilled: goombasKilled,
+      livesRemaining: score.lifeCount
+    });
+
+    score.updateMiniGame({
+      elapsedMs: elapsedMs,
+      coinsCollected: result.coinsCollected,
+      goombasKilled: result.goombasKilled,
+      livesRemaining: result.livesRemaining,
+      projectedScore: result.score
+    });
+    score.showResult(result, {
+      onReplay: gameOptions.onReplay,
+      onMenu: gameOptions.onMenu
+    });
+
+    window.dispatchEvent(new CustomEvent('mario-maker:result', { detail: result }));
+  };
+
+  this.abandonGame = function() {
+    if (!isMiniGame || resultEmitted || runState == 'idle') {
+      return;
+    }
+
+    if (runState == 'finishing' || runState == 'finish-delay') {
+      that.finalizeMiniGame('won', 'flag');
+    } else {
+      that.finalizeMiniGame('lost', 'abandoned');
+    }
+  };
+
   this.resetGame = function() {
-    that.clearInstances();
-    that.init(originalMaps, currentLevel);
+    that.loadLevel();
   };
 
   this.clearInstances = function() {
+    that.pauseGame();
+    that.clearTimeOut();
+    runState = 'idle';
+    keys = [];
     mario = null;
     element = null;
     gameSound = null;
+    finishAnimation = null;
 
     goombas = [];
     bullets = [];
@@ -854,6 +1424,7 @@ function MarioGame() {
 
   this.clearTimeOut = function() {
     clearTimeout(timeOutId);
+    timeOutId = null;
   };
 
   this.removeGameScreen = function() {
@@ -867,4 +1438,8 @@ function MarioGame() {
   this.showGameScreen = function() {
     gameUI.show();
   };
+}
+
+if (typeof module != 'undefined' && module.exports) {
+  module.exports = MarioGame;
 }

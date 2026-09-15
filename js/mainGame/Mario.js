@@ -6,7 +6,7 @@ function Mario() {
   this.y;
   this.width = 32;
   this.height = 44;
-  this.speed = 3;
+  this.speed = 3.6;
   this.velX = 0;
   this.velY = 0;
   this.jumping = false;
@@ -18,9 +18,9 @@ function Mario() {
 
   var that = this;
 
-  this.init = function() {
+  this.init = function(worldHeight) {
     that.x = 10;
-    that.y = gameUI.getHeight() - 40 - 40;
+    that.y = (worldHeight || gameUI.getHeight()) - 40 - 40;
 
     marioSprite = new Image();
     marioSprite.src = 'images/mario-sprites.png';
